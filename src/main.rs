@@ -1,5 +1,5 @@
 use futures::{StreamExt, stream::FuturesUnordered};
-use rdkafka::{ClientConfig, Message, admin::{AdminClient, AdminOptions, NewTopic, TopicReplication}, client::DefaultClientContext, consumer::{Consumer, StreamConsumer}, producer::{FutureProducer, FutureRecord}, util::Timeout, Offset};
+use rdkafka::{ClientConfig, Message, admin::{AdminClient, AdminOptions, NewTopic, TopicReplication}, client::DefaultClientContext, consumer::{Consumer, StreamConsumer}, producer::{FutureProducer, FutureRecord}, util::Timeout, Offset, TopicPartitionList};
 use std::{array, convert::TryInto, time::{Duration, SystemTime, UNIX_EPOCH}};
 use tokio::{sync::oneshot, task::JoinHandle, time};
 
@@ -24,24 +24,27 @@ async fn main() -> Result<()> {
     let mut consumer_cfg = x();
     consumer_cfg.set("session.timeout.ms", "6000");
     consumer_cfg.set("enable.auto.commit", "false");
-    consumer_cfg.set("group.id", "initial-example");
+    consumer_cfg.set("group.id", "placeholder");
 
     let admin: AdminClient<DefaultClientContext> = admin_cfg.create()?;
     let producer: FutureProducer = producer_cfg.create()?;
     let consumer: StreamConsumer = consumer_cfg.create()?;
 
-    consumer.subscribe(&[TOPIC])?;
-
     let topic = NewTopic::new(TOPIC, 1, TopicReplication::Fixed(1));
     let opts = AdminOptions::default();
     admin.create_topics(&[topic], &opts).await?;
+
+    let mut topics = TopicPartitionList::new();
+    topics.add_partition(TOPIC, 0);
+    topics.set_partition_offset(TOPIC, 0, Offset::Beginning);
+    consumer.assign(&topics)?;
 
     eprintln!("Created");
 
     let consumer_task: JoinHandle<Result<()>> = tokio::spawn(async move {
         eprintln!("Consumer task starting");
 
-        let _ = consumer.recv().await?; // Join the group
+        // This is redundant but shows it working
         consumer.seek(TOPIC, 0, Offset::Beginning, Timeout::After(Duration::from_millis(100)))?;
 
         loop {
