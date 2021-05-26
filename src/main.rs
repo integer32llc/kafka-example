@@ -6,7 +6,7 @@ use tokio::{sync::oneshot, task::JoinHandle, time};
 type Error = Box<dyn std::error::Error + Send + Sync + 'static>;
 type Result<T, E = Error> = std::result::Result<T, E>;
 
-const TOPIC: &str = "my-topic";
+const TOPIC: &str = "my-topic11";
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -36,7 +36,7 @@ async fn main() -> Result<()> {
 
     let mut topics = TopicPartitionList::new();
     topics.add_partition(TOPIC, 0);
-    topics.set_partition_offset(TOPIC, 0, Offset::Beginning);
+    topics.set_partition_offset(TOPIC, 0, Offset::Beginning)?;
     consumer.assign(&topics)?;
 
     eprintln!("Created");
@@ -45,7 +45,7 @@ async fn main() -> Result<()> {
         eprintln!("Consumer task starting");
 
         // This is redundant but shows it working
-        consumer.seek(TOPIC, 0, Offset::Beginning, Timeout::After(Duration::from_millis(100)))?;
+        // consumer.seek(TOPIC, 0, Offset::Beginning, Timeout::After(Duration::from_millis(100)))?;
 
         loop {
             let p = consumer.recv().await?;
@@ -56,13 +56,16 @@ async fn main() -> Result<()> {
     let producer_task = tokio::spawn(async move {
         eprintln!("Producer task starting");
         for i in 0u128.. {
-            let s = i.to_string();
+            let s = format!("hia {}", i);
             let record = FutureRecord::to(TOPIC).key(&s).payload(&s).timestamp(now());
             match producer.send_result(record) {
-                Ok(x) => match x.await? {
-                    Ok(x) => { dbg!(x) },
-                    Err((e, _msg)) => return Err(e.into()),
-                },
+                Ok(x) => tokio::spawn(async move {
+                    match x.await {
+                        Ok(Ok(x)) => { dbg!(x); },
+                        Ok(Err(e)) => eprintln!("kafka error: {:?}", e),
+                        Err(e) => eprintln!("futures cancelled error: {:?}", e),
+                    }
+                }),
                 Err((e, _msg)) => return Err(e.into()),
             };
             eprintln!("Sent {}", i);
